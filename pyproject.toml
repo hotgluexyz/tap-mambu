@@ -1,13 +1,12 @@
 [build-system]
 requires = [
-    "hatchling>=1,<2",
-    "hatch-vcs>=0.5",
+    "hatchling>=1.27,<2",
 ]
 build-backend = "hatchling.build"
 
 [project]
 name = "tap-mambu"
-dynamic = ["version"]
+version = "0.1.0.dev0"
 description = "Singer tap for Mambu, built with Hotglue's hotglue_singer_sdk."
 readme = "README.md"
 authors = [{ name = "Hotglue"}]
@@ -51,10 +50,6 @@ typing = [
     "ty>=0.0.18",
     "types-requests",
 ]
-
-[tool.hatch.version]
-fallback-version = "0.1.0.dev0"
-source = "vcs"
 
 [tool.mypy]
 enable_error_code = [
