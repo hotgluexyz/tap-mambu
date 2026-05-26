@@ -1,0 +1,53 @@
+send_anonymous_usage_stats: true
+project_id: "tap-mambu"
+default_environment: test
+requires_meltano: ">=4.0"
+environments:
+- name: test
+plugins:
+  extractors:
+  - name: "tap-mambu"
+    namespace: "tap_mambu"
+    pip_url: -e .
+    capabilities:
+    - state
+    - catalog
+    - discover
+    - about
+    - stream-maps
+    - structured-logging
+
+    # TODO: Declare settings and their types here:
+    settings:
+    - name: access_key
+      label: Access Key
+      description: The access key to authenticate against Mambu
+      sensitive: true
+
+    - name: start_date
+      kind: date_iso8601
+      label: Start Date
+      description: Initial date to start extracting data from
+
+    - name: api_url
+      label: API URL
+      description: Base URL for the Mambu API
+
+    - name: page_size
+      kind: integer
+      label: Page size
+      description: Limit for GL journal entries offset pagination (default 50)
+
+    # TODO: Declare required settings here:
+    settings_group_validation:
+    - [access_key]
+
+    # TODO: Declare default configuration values here:
+    config:
+      start_date: 6 months ago
+      api_url: https://mbuhotglue.sandbox.mambu.com/api
+
+  loaders:
+  - name: target-jsonl
+    variant: andyh1203
+    pip_url: target-jsonl
