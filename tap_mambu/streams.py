@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 from datetime import date, datetime, timezone
 from typing import Any, Iterable
 
@@ -189,15 +188,15 @@ class TransactionsStream(MambuStream):
     and ``transaction_id`` so this stream calls either ``GET /loans/transactions/{id}`` or
     ``GET /deposits/transactions/{id}`` with ``detailsLevel=FULL``.
 
-    Multiple GL lines often share the same ``transaction_id`` (e.g. debit/credit pair). Responses
-    are cached in-memory for the duration of the sync so each distinct ``(mambu_product,
-    transaction_id)`` is fetched at most once; later lines reuse the payload with an updated
-    ``journal_entry_encoded_key``.
+    Multiple GL lines often share the same ``transaction_id`` (e.g. debit/credit pair). During
+    a sync we only keep a **set** of ``(mambu_product, transaction_id)`` keys already fetched;
+    additional journal lines for the same id are skipped (no duplicate HTTP, no second RECORD).
+    ``journal_entry_encoded_key`` refers to the **first** parent line that caused the fetch.
     """
 
     name = "transactions"
     path = "/{mambu_product}/transactions/{transaction_id}"
-    primary_keys = ["journal_entry_encoded_key", "encodedKey"]
+    primary_keys = ["encodedKey"]
     replication_key = None
     next_page_token_jsonpath = None
     parent_stream_type = JournalEntriesStream
@@ -207,7 +206,10 @@ class TransactionsStream(MambuStream):
         th.Property(
             "journal_entry_encoded_key",
             th.StringType,
-            description="Parent GL journal line ``encodedKey`` (for lineage).",
+            description=(
+                "Parent GL journal line ``encodedKey`` that triggered this fetch "
+                "(first line seen when several lines share the same transaction id)."
+            ),
         ),
         th.Property("encodedKey", th.StringType, description="Transaction encoded key"),
         th.Property("id", th.StringType, description="Transaction id (matches journal transactionId)"),
@@ -234,30 +236,18 @@ class TransactionsStream(MambuStream):
     ) -> None:
         super().__init__(tap, name=name, schema=schema, path=path)
         self.state_partitioning_keys = []
-        self._transaction_response_cache: dict[tuple[str, str], dict[str, Any]] = {}
+        self._seen_transaction_keys: set[tuple[str, str]] = set()
 
     @override
     def get_records(self, context: dict | None) -> Iterable[dict[str, Any]]:
         ctx = context or {}
         if ctx.get("_skip_transaction_sync"):
             return
-        product = str(ctx.get("mambu_product", ""))
-        txn_id = str(ctx.get("transaction_id", ""))
-        cache_key = (product, txn_id)
-
-        if cache_key in self._transaction_response_cache:
-            row = copy.deepcopy(self._transaction_response_cache[cache_key])
-            jkey = ctx.get("journal_entry_encoded_key")
-            if jkey is not None:
-                row["journal_entry_encoded_key"] = jkey
-            out = self.post_process(row, ctx)
-            if out is not None:
-                yield out
+        key = (str(ctx.get("mambu_product", "")), str(ctx.get("transaction_id", "")))
+        if key in self._seen_transaction_keys:
             return
-
-        for rec in super().get_records(ctx):
-            self._transaction_response_cache[cache_key] = copy.deepcopy(rec)
-            yield rec
+        yield from super().get_records(ctx)
+        self._seen_transaction_keys.add(key)
 
     @override
     def get_url_params(
